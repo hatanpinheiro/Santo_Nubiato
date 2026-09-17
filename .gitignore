@@ -1,0 +1,24 @@
+# Ambientes Virtuais e Dependências
+venv/
+env/
+.env
+__pycache__/
+*.pyc
+*.pyo
+
+# IDEs e Editores
+.vscode/
+.idea/
+
+# Arquivos de Sistema
+.DS_Store
+Thumbs.db
+
+# Diretório de Uploads
+uploads/
+*.gpkg
+
+# Pastas de Build e Dist que já apagamos, mas bom garantir
+build/
+dist/
+*.spec

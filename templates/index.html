@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Santo Nubiato - Aplicação de ingestão de dados geoespaciais GPKG para PostgreSQL/PostGIS">
+    <title>Santo Nubiato — Ingestão de Dados Geoespaciais</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+    <!-- Header -->
+    <header id="app-header">
+        <div class="header-content">
+            <div class="header-brand">
+                <div class="brand-icon">
+                    <img src="{{ url_for('static', filename='img/logo.png') }}" alt="Logo Santo Nubiato" style="width: 32px; height: 32px; object-fit: contain;">
+                </div>
+                <div class="brand-text">
+                    <h1>Santo Nubiato</h1>
+                    <span class="version-badge">v0.2</span>
+                </div>
+            </div>
+            <div class="header-status">
+                <div id="connection-indicator" class="status-dot disconnected"></div>
+                <span id="connection-text">Desconectado</span>
+            </div>
+        </div>
+    </header>
+
+    <main id="app-main">
+        <!-- Left Panel: Config + Upload -->
+        <section class="panel panel-config" id="panel-config">
+            <!-- DB Config Card -->
+            <div class="card" id="card-db">
+                <div class="card-header">
+                    <svg class="card-icon" width="20" height="20" viewBox="0 0 20 20" fill="none">
+                        <ellipse cx="10" cy="5" rx="7" ry="3" stroke="currentColor" stroke-width="1.5"/>
+                        <path d="M3 5v4c0 1.66 3.13 3 7 3s7-1.34 7-3V5" stroke="currentColor" stroke-width="1.5"/>
+                        <path d="M3 9v4c0 1.66 3.13 3 7 3s7-1.34 7-3V9" stroke="currentColor" stroke-width="1.5"/>
+                    </svg>
+                    <h2>PostgreSQL</h2>
+                </div>
+                <div class="card-body">
+                    <div class="form-grid">
+                        <div class="form-group form-group-3">
+                            <label for="db-host">Host</label>
+                            <input type="text" id="db-host" value="localhost" placeholder="localhost">
+                        </div>
+                        <div class="form-group form-group-1">
+                            <label for="db-port">Porta</label>
+                            <input type="text" id="db-port" value="4554" placeholder="4554">
+                        </div>
+                        <div class="form-group form-group-2">
+                            <label for="db-name">Banco</label>
+                            <input type="text" id="db-name" value="bronze" placeholder="bronze">
+                        </div>
+                        <div class="form-group form-group-2">
+                            <label for="db-user">Usuário</label>
+                            <input type="text" id="db-user" value="postgres" placeholder="postgres">
+                        </div>
+                        <div class="form-group form-group-2">
+                            <label for="db-pass">Senha</label>
+                            <input type="password" id="db-pass" value="postgres" placeholder="••••••">
+                        </div>
+                        <div class="form-group form-group-2">
+                            <label for="db-schema">Schema</label>
+                            <input type="text" id="db-schema" value="sc" placeholder="schema_destino">
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Upload Card -->
+            <div class="card" id="card-upload">
+                <div class="card-header">
+                    <svg class="card-icon" width="20" height="20" viewBox="0 0 20 20" fill="none">
+                        <path d="M10 14V4m0 0L6 8m4-4l4 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                        <path d="M3 14v2a2 2 0 002 2h10a2 2 0 002-2v-2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+                    </svg>
+                    <h2>GeoPackage</h2>
+                    <span class="badge" id="file-count-badge" style="display:none">0</span>
+                </div>
+                <div class="card-body">
+                    <div class="drop-zone" id="drop-zone">
+                        <div class="drop-zone-content">
+                            <svg class="drop-icon" width="48" height="48" viewBox="0 0 48 48" fill="none">
+                                <circle cx="24" cy="24" r="20" stroke="currentColor" stroke-width="1.5" stroke-dasharray="4 3" opacity="0.5"/>
+                                <path d="M24 32V16m0 0l-6 6m6-6l6 6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                            </svg>
+                            <p class="drop-text">Arraste arquivos <strong>.gpkg</strong> aqui</p>
+                            <p class="drop-subtext">ou clique para selecionar</p>
+                            <span class="drop-hint">Suporta múltiplos arquivos • Até 2 GB cada</span>
+                        </div>
+                        <input type="file" id="file-input" accept=".gpkg" multiple hidden>
+                    </div>
+
+                    <!-- File list -->
+                    <div class="file-list" id="file-list" style="display:none">
+                        <div class="file-list-header">
+                            <span>Arquivos selecionados</span>
+                            <button class="btn-link" id="btn-clear-files">Limpar todos</button>
+                        </div>
+                        <ul id="file-items"></ul>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Actions -->
+            <div class="actions-group" id="actions-group">
+                <button class="btn btn-infra" id="btn-infra" disabled>
+                    <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+                        <path d="M9 3v12M3 9h12" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                    </svg>
+                    <span>Criar / Verificar Infraestrutura</span>
+                </button>
+                <button class="btn btn-ingest" id="btn-ingest" disabled>
+                    <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+                        <path d="M2 9l5 5L16 4" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                    </svg>
+                    <span>Executar Ingestão</span>
+                </button>
+            </div>
+        </section>
+
+        <!-- Right Panel: Log Console -->
+        <section class="panel panel-log" id="panel-log">
+            <div class="card card-log">
+                <div class="card-header">
+                    <svg class="card-icon" width="20" height="20" viewBox="0 0 20 20" fill="none">
+                        <rect x="2" y="3" width="16" height="14" rx="2" stroke="currentColor" stroke-width="1.5"/>
+                        <path d="M5 8l3 2-3 2M10 12h4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                    </svg>
+                    <h2>Console</h2>
+                    <div class="console-actions">
+                        <button class="btn-icon" id="btn-copy-log" title="Copiar log">
+                            <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                                <rect x="5" y="5" width="8" height="8" rx="1" stroke="currentColor" stroke-width="1.2"/>
+                                <path d="M3 11V4a1 1 0 011-1h7" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
+                            </svg>
+                        </button>
+                        <button class="btn-icon" id="btn-clear-log" title="Limpar console">
+                            <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                                <path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+                            </svg>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Batch Progress Bar -->
+                <div class="batch-progress" id="batch-progress" style="display:none">
+                    <div class="batch-info">
+                        <span id="batch-label">Arquivo 0/0</span>
+                        <span id="batch-filename"></span>
+                    </div>
+                    <div class="progress-track">
+                        <div class="progress-fill" id="batch-progress-fill" style="width:0%"></div>
+                    </div>
+                </div>
+
+                <!-- Layer Progress Bar -->
+                <div class="layer-progress" id="layer-progress" style="display:none">
+                    <div class="layer-info">
+                        <span id="layer-label">Camada 0/11</span>
+                    </div>
+                    <div class="progress-track progress-track-sm">
+                        <div class="progress-fill progress-fill-secondary" id="layer-progress-fill" style="width:0%"></div>
+                    </div>
+                </div>
+
+                <div class="console-body" id="console-body">
+                    <div class="console-content" id="console-content">
+                        <div class="console-welcome">
+                            <span class="console-prompt">$</span>
+                            <span>Santo Nubiato — Pronto para execução</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <!-- Toast -->
+    <div id="toast-container"></div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.5/socket.io.min.js"></script>
+    <script src="/static/js/app.js?v=0.2"></script>
+</body>
+</html>
