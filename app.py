@@ -28,6 +28,9 @@ processing_state = {
     "total": 0,
 }
 
+active_engines = {}
+
+
 
 def ensure_upload_dir():
     os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
@@ -148,6 +151,7 @@ def handle_infraestrutura(data):
         try:
             emit_log, emit_progress = create_emitters(sid)
             engine = ETLEngine(emit_log=emit_log, emit_progress=emit_progress)
+            active_engines[sid] = engine
 
             db_config = parse_db_config(data)
             schema = data.get("schema", "").strip()
@@ -160,6 +164,7 @@ def handle_infraestrutura(data):
         except Exception as e:
             socketio.emit('process_error', {'error': str(e)}, room=sid)
         finally:
+            active_engines.pop(sid, None)
             processing_state["running"] = False
             processing_state["type"] = None
 
@@ -183,6 +188,7 @@ def handle_ingestao(data):
         try:
             emit_log, emit_progress = create_emitters(sid)
             engine = ETLEngine(emit_log=emit_log, emit_progress=emit_progress)
+            active_engines[sid] = engine
 
             db_config = parse_db_config(data)
             schema = data.get("schema", "").strip()
@@ -255,6 +261,7 @@ def handle_ingestao(data):
         except Exception as e:
             socketio.emit('process_error', {'error': str(e)}, room=sid)
         finally:
+            active_engines.pop(sid, None)
             processing_state["running"] = False
             processing_state["type"] = None
 
@@ -268,7 +275,34 @@ def handle_connect():
 
 @socketio.on('disconnect')
 def handle_disconnect():
-    pass
+    sid = request.sid
+    engine = active_engines.get(sid)
+    if engine:
+        engine.parar_ingestao()
+
+
+@socketio.on('pause_process')
+def handle_pause():
+    sid = request.sid
+    engine = active_engines.get(sid)
+    if engine:
+        engine.pausar_ingestao()
+
+
+@socketio.on('resume_process')
+def handle_resume():
+    sid = request.sid
+    engine = active_engines.get(sid)
+    if engine:
+        engine.retomar_ingestao()
+
+
+@socketio.on('stop_process')
+def handle_stop():
+    sid = request.sid
+    engine = active_engines.get(sid)
+    if engine:
+        engine.parar_ingestao()
 
 
 if __name__ == '__main__':

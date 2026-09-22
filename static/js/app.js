@@ -44,6 +44,12 @@
         // Actions
         btnInfra: $('#btn-infra'),
         btnIngest: $('#btn-ingest'),
+        
+        // Process Controls
+        actionsControls: $('#actions-controls'),
+        btnPause: $('#btn-pause'),
+        btnResume: $('#btn-resume'),
+        btnStop: $('#btn-stop'),
 
         // Console
         consoleContent: $('#console-content'),
@@ -152,9 +158,13 @@
             if (data.type === 'ingestao') {
                 dom.batchProgress.style.display = 'block';
                 dom.layerProgress.style.display = 'block';
+                dom.actionsControls.style.display = 'flex';
+                dom.btnPause.style.display = 'inline-flex';
+                dom.btnResume.style.display = 'none';
             } else {
                 dom.batchProgress.style.display = 'none';
                 dom.layerProgress.style.display = 'none';
+                dom.actionsControls.style.display = 'none';
             }
         });
 
@@ -163,6 +173,7 @@
             resetButtons();
             dom.batchProgress.style.display = 'none';
             dom.layerProgress.style.display = 'none';
+            dom.actionsControls.style.display = 'none';
 
             const result = data.result || {};
             if (result.success) {
@@ -179,6 +190,7 @@
             resetButtons();
             dom.batchProgress.style.display = 'none';
             dom.layerProgress.style.display = 'none';
+            dom.actionsControls.style.display = 'none';
             showToast(data.error || 'Erro inesperado.', 'error', 6000);
             appendLog(`\n❌ Erro: ${data.error}`);
         });
@@ -426,6 +438,19 @@
         dom.btnClearLog.addEventListener('click', () => {
             clearConsole();
             showToast('Console limpo.', 'info', 1500);
+        });
+        dom.btnPause.addEventListener('click', () => {
+            state.socket.emit('pause_process');
+            dom.btnPause.style.display = 'none';
+            dom.btnResume.style.display = 'inline-flex';
+        });
+        dom.btnResume.addEventListener('click', () => {
+            state.socket.emit('resume_process');
+            dom.btnResume.style.display = 'none';
+            dom.btnPause.style.display = 'inline-flex';
+        });
+        dom.btnStop.addEventListener('click', () => {
+            state.socket.emit('stop_process');
         });
     }
 

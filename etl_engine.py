@@ -15,8 +15,12 @@ NOTA: Toda a logica de negocio foi preservada integralmente do script original
 
 import os
 import re
+import time
+import queue
+import threading
 import subprocess
 import psycopg2
+import psutil
 from psycopg2 import sql
 
 
@@ -661,6 +665,10 @@ class ETLEngine:
     def __init__(self, emit_log=None, emit_progress=None):
         self.emit_log = emit_log or (lambda msg: print(msg))
         self.emit_progress = emit_progress or (lambda current, total: None)
+        self.stop_requested = False
+        self.pause_requested = False
+        self.current_process = None
+        self.process_lock = threading.Lock()
 
         self.mapeamento_camadas = {
             'limite_perimetro_urbano': 'limite_perimetro_urbano',
@@ -683,6 +691,38 @@ class ETLEngine:
 
     def log(self, mensagem):
         self.emit_log(mensagem)
+
+    def pausar_ingestao(self):
+        self.pause_requested = True
+        with self.process_lock:
+            if self.current_process:
+                try:
+                    p = psutil.Process(self.current_process.pid)
+                    p.suspend()
+                    self.log("⏸️ Processo suspenso pelo usuário.")
+                except Exception as e:
+                    self.log(f"⚠️ Erro ao pausar processo: {e}")
+
+    def retomar_ingestao(self):
+        self.pause_requested = False
+        with self.process_lock:
+            if self.current_process:
+                try:
+                    p = psutil.Process(self.current_process.pid)
+                    p.resume()
+                    self.log("▶️ Processo retomado pelo usuário.")
+                except Exception as e:
+                    self.log(f"⚠️ Erro ao retomar processo: {e}")
+
+    def parar_ingestao(self):
+        self.stop_requested = True
+        with self.process_lock:
+            if self.current_process:
+                try:
+                    self.current_process.kill()
+                    self.log("⏹️ Processo interrompido pelo usuário.")
+                except Exception as e:
+                    self.log(f"⚠️ Erro ao parar processo: {e}")
 
     def obter_schema_validado(self, schema):
         schema = schema.strip()
@@ -849,6 +889,105 @@ class ETLEngine:
             text=True,
             shell=(os.name == 'nt')
         )
+
+    def executar_ogr2ogr_com_monitoramento(self, cmd_ogr):
+        max_retries = 3
+        for tentativa in range(max_retries):
+            if self.stop_requested:
+                return -1, "Interrompido", ""
+
+            def reader(pipe, q):
+                try:
+                    while True:
+                        char = pipe.read(1)
+                        if not char:
+                            break
+                        q.put(char)
+                finally:
+                    q.put(None)
+
+            with self.process_lock:
+                self.current_process = subprocess.Popen(
+                    cmd_ogr + ["-progress"],
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                    bufsize=1,
+                    shell=(os.name == 'nt')
+                )
+
+            q_out = queue.Queue()
+            t_out = threading.Thread(target=reader, args=(self.current_process.stdout, q_out))
+            t_out.daemon = True
+            t_out.start()
+
+            q_err = queue.Queue()
+            t_err = threading.Thread(target=reader, args=(self.current_process.stderr, q_err))
+            t_err.daemon = True
+            t_err.start()
+
+            last_output_time = time.time()
+            buffer_out = ""
+            full_out = []
+            full_err = []
+            last_pct = -1
+
+            while True:
+                if self.stop_requested:
+                    with self.process_lock:
+                        if self.current_process.poll() is None:
+                            self.current_process.kill()
+                    return -1, "Interrompido pelo usuário", ""
+
+                if not self.pause_requested and (time.time() - last_output_time) > 60:
+                    self.log("  ⚠️ Processo de ingestão travado por 60 segundos (PID timeout). Reiniciando camada...")
+                    with self.process_lock:
+                        if self.current_process.poll() is None:
+                            self.current_process.kill()
+                    break
+
+                if self.pause_requested:
+                    time.sleep(0.5)
+                    last_output_time = time.time()
+                    continue
+
+                try:
+                    char = q_out.get(timeout=0.5)
+                    if char is not None:
+                        last_output_time = time.time()
+                        full_out.append(char)
+                        if char.isdigit():
+                            buffer_out += char
+                        elif char == '.' and buffer_out:
+                            pct = int(buffer_out)
+                            if 0 <= pct <= 100 and pct != last_pct and pct % 10 == 0:
+                                self.log(f"  ⏳ Progresso da ingestão ativa: {pct}%")
+                                last_pct = pct
+                            buffer_out = ""
+                        elif not char.isdigit():
+                            buffer_out = ""
+                except queue.Empty:
+                    pass
+
+                try:
+                    while not q_err.empty():
+                        c_err = q_err.get_nowait()
+                        if c_err is not None:
+                            full_err.append(c_err)
+                            last_output_time = time.time()
+                except queue.Empty:
+                    pass
+
+                if self.current_process.poll() is not None and q_out.empty() and q_err.empty():
+                    break
+
+            retcode = self.current_process.poll()
+            if retcode is not None:
+                return retcode, "".join(full_out), "".join(full_err)
+            
+            time.sleep(2)
+
+        return -1, "", "Falhou após 3 tentativas de reinício por estagnação (Timeout)."
 
     def listar_camadas_gpkg(self, gpkg):
         try:
@@ -1519,6 +1658,29 @@ class ETLEngine:
             camadas_gpkg = self.listar_camadas_gpkg(gpkg_path)
             self.log(f"   Camadas encontradas no GPKG: {len(camadas_gpkg)}")
 
+            cd_mun_gpkg = None
+            try:
+                existe_lim, nome_real_lim = self.camada_existe_gpkg(gpkg_path, 'limite_perimetro_urbano')
+                if existe_lim:
+                    cmd_mun = ["ogrinfo", "-ro", "-q", "-dialect", "SQLite", "-sql", f"SELECT DISTINCT cd_mun FROM {self.sql_ident_ogr(nome_real_lim or 'limite_perimetro_urbano')} WHERE cd_mun IS NOT NULL LIMIT 1", gpkg_path]
+                    res_mun = self.executar_comando_ogr(cmd_mun)
+                    if res_mun.returncode == 0:
+                        match_cd = re.search(r"cd_mun[^\n=]*=\s*'?([^'\n]+)'?", res_mun.stdout, flags=re.IGNORECASE)
+                        if match_cd and match_cd.group(1).strip():
+                            cd_mun_gpkg = match_cd.group(1).strip()
+            except Exception as e:
+                self.log(f"  ⚠️ Erro ao tentar ler município do GPKG: {e}")
+
+            if cd_mun_gpkg:
+                self.log(f"  🏢 Município detectado no arquivo: {cd_mun_gpkg}")
+                with conn.cursor() as cur:
+                    if self.tabela_existe(cur, schema, 'limite_perimetro_urbano'):
+                        cur.execute(f"SELECT 1 FROM {schema}.limite_perimetro_urbano WHERE cd_mun = %s LIMIT 1", (cd_mun_gpkg,))
+                        if cur.fetchone():
+                            msg_mun = f"Município {cd_mun_gpkg} já consta no banco de dados. Ingestão pulada."
+                            self.log(f"  ⏭️ {msg_mun}")
+                            return {"success": False, "warning": msg_mun, "resumo_geral": None}
+
             resumo = {"concluidas": 0, "ignoradas": 0, "erros": 0}
 
             for i, (origem, destino) in enumerate(self.mapeamento_camadas.items(), 1):
@@ -1630,15 +1792,21 @@ class ETLEngine:
                         "--config", "PG_USE_COPY", "YES"
                     ]
 
-                    res_ogr = self.executar_comando_ogr(cmd_ogr)
+                    retcode, stdout_ogr, stderr_ogr = self.executar_ogr2ogr_com_monitoramento(cmd_ogr)
+                    
+                    if self.stop_requested:
+                        msg = "Processamento parado pelo usuário."
+                        self.log(f"  🛑 {msg}")
+                        self.registrar_log_banco(conn, schema, destino, 0, 'INTERROMPIDO', gpkg_path, msg)
+                        return {"success": False, "error": msg}
 
-                    if res_ogr.returncode == 0:
+                    if retcode == 0:
                         self.registrar_log_banco(conn, schema, destino, qtd, 'CONCLUIDO', gpkg_path,
                                                  'Atualização via script com validação previa de camada/tabela/campos/geometria, reprojecao SRID quando necessaria e conversões controladas e tratamento de primeiro valor em textos multivalorados para inteiros')
                         self.log(f"  ✅ Sucesso: {qtd} registros.")
                         resumo["concluidas"] += 1
                     else:
-                        erro = res_ogr.stderr.strip() or res_ogr.stdout.strip()
+                        erro = stderr_ogr.strip() or stdout_ogr.strip()
                         self.registrar_log_banco(conn, schema, destino, qtd, 'ERRO', gpkg_path, erro[:1000])
                         self.log(f"  ❌ Erro no ogr2ogr: {erro[:500]}")
                         resumo["erros"] += 1

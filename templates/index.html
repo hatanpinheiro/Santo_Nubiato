@@ -47,15 +47,15 @@
                     <div class="form-grid">
                         <div class="form-group form-group-3">
                             <label for="db-host">Host</label>
-                            <input type="text" id="db-host" value="localhost" placeholder="localhost">
+                            <input type="text" id="db-host" value="db.labfsg.ufsc.br" placeholder="localhost">
                         </div>
                         <div class="form-group form-group-1">
                             <label for="db-port">Porta</label>
-                            <input type="text" id="db-port" value="4554" placeholder="4554">
+                            <input type="text" id="db-port" value="5445" placeholder="5432">
                         </div>
                         <div class="form-group form-group-2">
                             <label for="db-name">Banco</label>
-                            <input type="text" id="db-name" value="bronze" placeholder="bronze">
+                            <input type="text" id="db-name" value="cartografia_bronze" placeholder="bronze">
                         </div>
                         <div class="form-group form-group-2">
                             <label for="db-user">Usuário</label>
@@ -121,6 +121,19 @@
                         <path d="M2 9l5 5L16 4" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
                     </svg>
                     <span>Executar Ingestão</span>
+                </button>
+            </div>
+
+            <!-- Process Controls -->
+            <div class="actions-controls" id="actions-controls" style="display:none; margin-top: 15px; gap: 10px;">
+                <button class="btn btn-outline" id="btn-pause" title="Pausar" style="flex: 1;">
+                    ⏸️ Pausar
+                </button>
+                <button class="btn btn-outline" id="btn-resume" title="Continuar" style="display:none; flex: 1;">
+                    ▶️ Continuar
+                </button>
+                <button class="btn btn-danger" id="btn-stop" title="Parar" style="background-color: #ef4444; color: white; border-color: #ef4444; flex: 1;">
+                    ⏹️ Parar
                 </button>
             </div>
         </section>
