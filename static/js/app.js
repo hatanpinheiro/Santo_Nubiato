@@ -24,6 +24,7 @@
         // Connection
         connectionDot: $('#connection-indicator'),
         connectionText: $('#connection-text'),
+        btnRestartSystem: $('#btn-restart-system'),
 
         // DB Config
         dbHost: $('#db-host'),
@@ -451,6 +452,15 @@
         });
         dom.btnStop.addEventListener('click', () => {
             state.socket.emit('stop_process');
+        });
+        dom.btnRestartSystem.addEventListener('click', () => {
+            if (confirm('Tem certeza que deseja reiniciar o sistema? Isso abortará qualquer processo em andamento e recarregará a aplicação.')) {
+                state.socket.emit('restart_server');
+                showToast('Reiniciando sistema. A página recarregará em instantes...', 'info', 5000);
+                setTimeout(() => {
+                    window.location.reload();
+                }, 4000);
+            }
         });
     }
 

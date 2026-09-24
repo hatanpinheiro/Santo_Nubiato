@@ -724,6 +724,22 @@ class ETLEngine:
                 except Exception as e:
                     self.log(f"⚠️ Erro ao parar processo: {e}")
 
+    def reverter_ingestao_arquivo(self, conn, schema, arquivo_origem):
+        self.log(f"  ⏪ Iniciando rollback de segurança para o arquivo: {arquivo_origem}")
+        try:
+            with conn.cursor() as cur:
+                for tabela in self.mapeamento_camadas.values():
+                    if self.tabela_existe(cur, schema, tabela):
+                        cur.execute(f"DELETE FROM {schema}.{tabela} WHERE arquivo_origem = %s", (arquivo_origem,))
+                        deleted = cur.rowcount
+                        if deleted > 0:
+                            self.log(f"    🗑️ Excluídos {deleted} registros da camada {tabela}.")
+            conn.commit()
+            self.log("  ✅ Rollback concluído com sucesso. Nenhum dado corrompido ou parcial permaneceu no banco.")
+        except Exception as e:
+            conn.rollback()
+            self.log(f"  ⚠️ Erro crítico ao tentar reverter ingestão: {e}")
+
     def obter_schema_validado(self, schema):
         schema = schema.strip()
         if not schema:
@@ -940,11 +956,27 @@ class ETLEngine:
                     return -1, "Interrompido pelo usuário", ""
 
                 if not self.pause_requested and (time.time() - last_output_time) > 60:
-                    self.log("  ⚠️ Processo de ingestão travado por 60 segundos (PID timeout). Reiniciando camada...")
+                    is_active = False
                     with self.process_lock:
-                        if self.current_process.poll() is None:
-                            self.current_process.kill()
-                    break
+                        if self.current_process and self.current_process.poll() is None:
+                            try:
+                                p = psutil.Process(self.current_process.pid)
+                                cpu_usage = p.cpu_percent(interval=1.0)
+                                if cpu_usage > 0.5:
+                                    is_active = True
+                            except psutil.NoSuchProcess:
+                                pass
+                    
+                    if is_active:
+                        self.log("  ⚠️ Processo silencioso, mas ainda processando ativamente (CPU alta). Aguardando...")
+                        last_output_time = time.time()
+                        continue
+                    else:
+                        self.log("  ⚠️ Processo de ingestão realmente travado (CPU ociosa e Timeout). Reiniciando camada...")
+                        with self.process_lock:
+                            if self.current_process.poll() is None:
+                                self.current_process.kill()
+                        break
 
                 if self.pause_requested:
                     time.sleep(0.5)
@@ -1682,8 +1714,12 @@ class ETLEngine:
                             return {"success": False, "warning": msg_mun, "resumo_geral": None}
 
             resumo = {"concluidas": 0, "ignoradas": 0, "erros": 0}
+            houve_erro_fatal = False
 
             for i, (origem, destino) in enumerate(self.mapeamento_camadas.items(), 1):
+                if houve_erro_fatal or self.stop_requested:
+                    break
+
                 self.log(f"\n📦 Camada ({i}/{total}): {origem} -> {schema}.{destino}")
                 self.emit_progress(i - 1, total)
 
@@ -1703,6 +1739,7 @@ class ETLEngine:
                             self.log(f"  ❌ {msg}")
                             self.registrar_log_banco(conn, schema, destino, 0, 'ERRO', gpkg_path, msg)
                             resumo["erros"] += 1
+                            houve_erro_fatal = True
                             self.emit_progress(i, total)
                             continue
 
@@ -1746,6 +1783,7 @@ class ETLEngine:
                         self.log(f"  ❌ {msg}")
                         self.registrar_log_banco(conn, schema, destino, 0, 'ERRO', gpkg_path, msg)
                         resumo["erros"] += 1
+                        houve_erro_fatal = True
                         self.emit_progress(i, total)
                         continue
 
@@ -1758,6 +1796,7 @@ class ETLEngine:
                             self.log(f"  ❌ {msg}")
                             self.registrar_log_banco(conn, schema, destino, 0, 'ERRO', gpkg_path, msg)
                             resumo["erros"] += 1
+                            houve_erro_fatal = True
                             self.emit_progress(i, total)
                             continue
                         self.log("  ✅ Valores validados para conversão controlada.")
@@ -1798,26 +1837,44 @@ class ETLEngine:
                         msg = "Processamento parado pelo usuário."
                         self.log(f"  🛑 {msg}")
                         self.registrar_log_banco(conn, schema, destino, 0, 'INTERROMPIDO', gpkg_path, msg)
-                        return {"success": False, "error": msg}
+                        houve_erro_fatal = True
+                        break
 
                     if retcode == 0:
-                        self.registrar_log_banco(conn, schema, destino, qtd, 'CONCLUIDO', gpkg_path,
+                        inserted_count = 0
+                        with conn.cursor() as cur:
+                            cur.execute(f"SELECT count(*) FROM {schema}.{destino} WHERE arquivo_origem = %s", (nome_arq,))
+                            row = cur.fetchone()
+                            if row:
+                                inserted_count = row[0]
+
+                        self.registrar_log_banco(conn, schema, destino, inserted_count, 'CONCLUIDO', gpkg_path,
                                                  'Atualização via script com validação previa de camada/tabela/campos/geometria, reprojecao SRID quando necessaria e conversões controladas e tratamento de primeiro valor em textos multivalorados para inteiros')
-                        self.log(f"  ✅ Sucesso: {qtd} registros.")
+                        self.log(f"  ✅ Sucesso: {inserted_count} registros gravados e confirmados no banco de dados (GPKG relatava {qtd}).")
                         resumo["concluidas"] += 1
                     else:
                         erro = stderr_ogr.strip() or stdout_ogr.strip()
                         self.registrar_log_banco(conn, schema, destino, qtd, 'ERRO', gpkg_path, erro[:1000])
                         self.log(f"  ❌ Erro no ogr2ogr: {erro[:500]}")
                         resumo["erros"] += 1
+                        houve_erro_fatal = True
+                        break
 
                 except Exception as e:
                     msg = f"Erro na camada {origem}: {e}"
                     self.log(f"  ❌ {msg}")
                     self.registrar_log_banco(conn, schema, destino, 0, 'ERRO', gpkg_path, msg)
                     resumo["erros"] += 1
+                    houve_erro_fatal = True
 
                 self.emit_progress(i, total)
+
+            # Se houve algum erro fatal ou se o usuário parou, reverte tudo do arquivo
+            if houve_erro_fatal or self.stop_requested:
+                self.reverter_ingestao_arquivo(conn, schema, nome_arq)
+                if self.stop_requested:
+                    return {"success": False, "error": "Processo abortado pelo usuário e dados revertidos."}
+                return {"success": False, "error": f"Erro fatal durante a ingestão do arquivo {nome_arq}. Os dados inseridos parcialmente foram revertidos."}
 
             self.log("\n✅ PROCESSAMENTO FINALIZADO")
             self.log(f"   Camadas concluidas: {resumo['concluidas']}")

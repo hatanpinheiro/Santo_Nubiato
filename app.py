@@ -305,6 +305,23 @@ def handle_stop():
         engine.parar_ingestao()
 
 
+@socketio.on('restart_server')
+def handle_restart_server():
+    sid = request.sid
+    engine = active_engines.get(sid)
+    if engine:
+        engine.parar_ingestao()
+    
+    import threading
+    def restart():
+        import time
+        import os
+        time.sleep(1)
+        os._exit(1)
+        
+    threading.Thread(target=restart).start()
+
+
 if __name__ == '__main__':
     ensure_upload_dir()
     socketio.run(app, host='0.0.0.0', port=5000, debug=False, allow_unsafe_werkzeug=True)
