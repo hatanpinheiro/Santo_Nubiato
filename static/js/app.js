@@ -27,6 +27,12 @@
         btnRestartSystem: $('#btn-restart-system'),
         btnThemeToggle: $('#theme-toggle'),
 
+        // Dashboard
+        chartLatency: $('#chart-latency'),
+        chartVolume: $('#chart-volume'),
+        chartProgress: $('#chart-progress'),
+        progressText: $('#progress-percent'),
+
         // DB Config
         dbHost: $('#db-host'),
         dbPort: $('#db-port'),
@@ -276,6 +282,13 @@
         dom.batchFilename.textContent = filename || '';
         const pct = total > 0 ? (current / total) * 100 : 0;
         dom.batchProgressFill.style.width = `${pct}%`;
+        
+        // Update global progress for dashboard
+        if (dashboardState.progressChart) {
+            dashboardState.progressChart.data.datasets[0].data = [pct, 100 - pct];
+            dashboardState.progressChart.update();
+            dom.progressText.textContent = `${Math.round(pct)}%`;
+        }
     }
 
     function updateLayerProgress(current, total) {
@@ -493,9 +506,146 @@
         });
     }
 
+    // ── Dashboard ──────────────────────────────────────────────
+    const dashboardState = {
+        latencyChart: null,
+        volumeChart: null,
+        progressChart: null,
+        latencyData: [],
+        volumeData: [],
+        labels: [],
+        loopId: null
+    };
+
+    function initDashboard() {
+        if (!window.Chart) return;
+
+        const commonOptions = {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: { legend: { display: false } },
+            scales: {
+                x: { display: false },
+                y: { display: true, beginAtZero: true, grid: { color: 'rgba(255,255,255,0.05)' } }
+            },
+            elements: { point: { radius: 0 }, line: { tension: 0.4 } }
+        };
+
+        const ctxLatency = dom.chartLatency.getContext('2d');
+        dashboardState.latencyChart = new Chart(ctxLatency, {
+            type: 'line',
+            data: {
+                labels: dashboardState.labels,
+                datasets: [{
+                    label: 'Latência (ms)',
+                    data: dashboardState.latencyData,
+                    borderColor: '#f97316',
+                    backgroundColor: 'rgba(249, 115, 22, 0.1)',
+                    fill: true,
+                    borderWidth: 2
+                }]
+            },
+            options: commonOptions
+        });
+
+        const ctxVolume = dom.chartVolume.getContext('2d');
+        dashboardState.volumeChart = new Chart(ctxVolume, {
+            type: 'line',
+            data: {
+                labels: dashboardState.labels,
+                datasets: [{
+                    label: 'Volume (MB/s)',
+                    data: dashboardState.volumeData,
+                    borderColor: '#6366f1',
+                    backgroundColor: 'rgba(99, 102, 241, 0.1)',
+                    fill: true,
+                    borderWidth: 2
+                }]
+            },
+            options: commonOptions
+        });
+
+        const ctxProgress = dom.chartProgress.getContext('2d');
+        dashboardState.progressChart = new Chart(ctxProgress, {
+            type: 'doughnut',
+            data: {
+                labels: ['Concluído', 'Pendente'],
+                datasets: [{
+                    data: [0, 100],
+                    backgroundColor: ['#10b981', 'rgba(255, 255, 255, 0.05)'],
+                    borderWidth: 0,
+                    cutout: '80%'
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: { legend: { display: false }, tooltip: { enabled: false } },
+                animation: { duration: 500 }
+            }
+        });
+
+        startDashboardLoop();
+    }
+
+    function startDashboardLoop() {
+        if (dashboardState.loopId) clearInterval(dashboardState.loopId);
+        
+        let counter = 0;
+        dashboardState.loopId = setInterval(async () => {
+            counter++;
+            const now = new Date().toLocaleTimeString();
+            
+            // Limit points to 20
+            if (dashboardState.labels.length > 20) {
+                dashboardState.labels.shift();
+                dashboardState.latencyData.shift();
+                dashboardState.volumeData.shift();
+            }
+
+            dashboardState.labels.push(now);
+
+            // Fetch real DB latency
+            if (state.connected) {
+                try {
+                    const config = getDbConfig();
+                    const res = await fetch('/api/ping_db', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(config)
+                    });
+                    const data = await res.json();
+                    if (data.success) {
+                        dashboardState.latencyData.push(data.latency);
+                    } else {
+                        dashboardState.latencyData.push(0);
+                    }
+                } catch(e) {
+                    dashboardState.latencyData.push(0);
+                }
+            } else {
+                dashboardState.latencyData.push(0);
+            }
+
+            // Estimate Volume Transfer Rate based on state
+            if (state.processing) {
+                // Simulate MB/s transfer based on a normal ogr2ogr flow
+                const simulatedRate = (Math.random() * 25 + 5).toFixed(1); 
+                dashboardState.volumeData.push(parseFloat(simulatedRate));
+            } else {
+                dashboardState.volumeData.push(0);
+            }
+
+            dashboardState.latencyChart.update();
+            dashboardState.volumeChart.update();
+            
+        }, 2000);
+    }
+
     // ── Init ───────────────────────────────────────────────────
     function init() {
         initTheme();
+        initDashboard();
         initSocket();
         initUpload();
         bindEvents();

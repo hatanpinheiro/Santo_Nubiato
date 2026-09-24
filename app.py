@@ -106,6 +106,29 @@ def get_status():
     return jsonify(processing_state)
 
 
+@app.route('/api/ping_db', methods=['POST'])
+def ping_db():
+    import time, psycopg2
+    data = request.json
+    if not data:
+        return jsonify({"success": False, "error": "No data"}), 400
+    try:
+        start = time.time()
+        conn = psycopg2.connect(
+            host=data.get('host', ''), 
+            port=data.get('port', ''), 
+            dbname=data.get('dbname', ''), 
+            user=data.get('user', ''), 
+            password=data.get('password', ''), 
+            connect_timeout=2
+        )
+        conn.close()
+        latency = int((time.time() - start) * 1000)
+        return jsonify({"success": True, "latency": latency})
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)})
+
+
 def create_emitters(sid):
     """Cria funções de callback de log e progresso vinculadas a um socket."""
     import time

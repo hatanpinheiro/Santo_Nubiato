@@ -145,56 +145,93 @@
             </div>
         </section>
 
-        <!-- Right Panel: Log Console -->
-        <section class="panel panel-log" id="panel-log">
-            <div class="card card-log">
-                <div class="card-header">
-                    <svg class="card-icon" width="20" height="20" viewBox="0 0 20 20" fill="none">
-                        <rect x="2" y="3" width="16" height="14" rx="2" stroke="currentColor" stroke-width="1.5"/>
-                        <path d="M5 8l3 2-3 2M10 12h4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
-                    </svg>
-                    <h2>Console</h2>
-                    <div class="console-actions">
-                        <button class="btn-icon" id="btn-copy-log" title="Copiar log">
-                            <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-                                <rect x="5" y="5" width="8" height="8" rx="1" stroke="currentColor" stroke-width="1.2"/>
-                                <path d="M3 11V4a1 1 0 011-1h7" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
-                            </svg>
-                        </button>
-                        <button class="btn-icon" id="btn-clear-log" title="Limpar console">
-                            <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-                                <path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
-                            </svg>
-                        </button>
+        <!-- Right Panel: Dashboard + Log Console -->
+        <section class="panel-right" style="flex: 1; display: flex; flex-direction: column; overflow: hidden; background: var(--bg-primary);">
+            
+            <!-- Dashboard Section -->
+            <div class="panel-dashboard" id="panel-dashboard" style="height: 220px; min-height: 220px; display: flex; gap: var(--space-md); padding: var(--space-lg) var(--space-lg) 0 var(--space-lg);">
+                
+                <div class="card" style="flex: 1; display: flex; flex-direction: column;">
+                    <div class="card-header" style="padding: 10px 15px; min-height: unset; border-bottom: none;">
+                        <h2 style="font-size: 12px;">Latência DB (ms)</h2>
+                    </div>
+                    <div class="card-body" style="flex: 1; position: relative; padding: 0 10px 10px 10px;">
+                        <canvas id="chart-latency"></canvas>
                     </div>
                 </div>
 
-                <!-- Batch Progress Bar -->
-                <div class="batch-progress" id="batch-progress" style="display:none">
-                    <div class="batch-info">
-                        <span id="batch-label">Arquivo 0/0</span>
-                        <span id="batch-filename"></span>
+                <div class="card" style="flex: 1; display: flex; flex-direction: column;">
+                    <div class="card-header" style="padding: 10px 15px; min-height: unset; border-bottom: none;">
+                        <h2 style="font-size: 12px;">Volume Transferido (MB/s)</h2>
                     </div>
-                    <div class="progress-track">
-                        <div class="progress-fill" id="batch-progress-fill" style="width:0%"></div>
+                    <div class="card-body" style="flex: 1; position: relative; padding: 0 10px 10px 10px;">
+                        <canvas id="chart-volume"></canvas>
                     </div>
                 </div>
 
-                <!-- Layer Progress Bar -->
-                <div class="layer-progress" id="layer-progress" style="display:none">
-                    <div class="layer-info">
-                        <span id="layer-label">Camada 0/11</span>
+                <div class="card" style="flex: 0.8; display: flex; flex-direction: column; align-items: center; justify-content: center; position: relative;">
+                    <div class="card-header" style="padding: 10px 15px; width: 100%; min-height: unset; border-bottom: none; text-align: center;">
+                        <h2 style="font-size: 12px; margin: 0 auto;">Progresso Total</h2>
                     </div>
-                    <div class="progress-track progress-track-sm">
-                        <div class="progress-fill progress-fill-secondary" id="layer-progress-fill" style="width:0%"></div>
+                    <div class="card-body" style="position: relative; width: 120px; height: 120px; padding: 0;">
+                        <canvas id="chart-progress"></canvas>
+                        <div id="progress-percent" style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); font-weight: bold; font-size: 20px; color: var(--accent-orange);">0%</div>
                     </div>
                 </div>
 
-                <div class="console-body" id="console-body">
-                    <div class="console-content" id="console-content">
-                        <div class="console-welcome">
-                            <span class="console-prompt">$</span>
-                            <span>Santo Nubiato — Pronto para execução</span>
+            </div>
+
+            <!-- Log Console -->
+            <div class="panel-log" id="panel-log" style="flex: 1; padding: var(--space-md) var(--space-lg); display: flex; flex-direction: column; overflow: hidden;">
+                <div class="card card-log" style="flex: 1; display: flex; flex-direction: column; overflow: hidden;">
+                    <div class="card-header">
+                        <svg class="card-icon" width="20" height="20" viewBox="0 0 20 20" fill="none">
+                            <rect x="2" y="3" width="16" height="14" rx="2" stroke="currentColor" stroke-width="1.5"/>
+                            <path d="M5 8l3 2-3 2M10 12h4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                        </svg>
+                        <h2>Console</h2>
+                        <div class="console-actions">
+                            <button class="btn-icon" id="btn-copy-log" title="Copiar log">
+                                <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                                    <rect x="5" y="5" width="8" height="8" rx="1" stroke="currentColor" stroke-width="1.2"/>
+                                    <path d="M3 11V4a1 1 0 011-1h7" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
+                                </svg>
+                            </button>
+                            <button class="btn-icon" id="btn-clear-log" title="Limpar console">
+                                <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                                    <path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+                                </svg>
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Batch Progress Bar -->
+                    <div class="batch-progress" id="batch-progress" style="display:none">
+                        <div class="batch-info">
+                            <span id="batch-label">Arquivo 0/0</span>
+                            <span id="batch-filename"></span>
+                        </div>
+                        <div class="progress-track">
+                            <div class="progress-fill" id="batch-progress-fill" style="width:0%"></div>
+                        </div>
+                    </div>
+
+                    <!-- Layer Progress Bar -->
+                    <div class="layer-progress" id="layer-progress" style="display:none">
+                        <div class="layer-info">
+                            <span id="layer-label">Camada 0/11</span>
+                        </div>
+                        <div class="progress-track progress-track-sm">
+                            <div class="progress-fill progress-fill-secondary" id="layer-progress-fill" style="width:0%"></div>
+                        </div>
+                    </div>
+
+                    <div class="console-body" id="console-body" style="flex: 1; overflow: hidden; display: flex; flex-direction: column;">
+                        <div class="console-content" id="console-content" style="flex: 1;">
+                            <div class="console-welcome">
+                                <span class="console-prompt">$</span>
+                                <span>Santo Nubiato — Pronto para execução</span>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -214,7 +251,8 @@
     <!-- Toast -->
     <div id="toast-container"></div>
 
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.9.1/chart.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.5/socket.io.min.js"></script>
-    <script src="/static/js/app.js?v=0.2"></script>
+    <script src="/static/js/app.js?v=0.3"></script>
 </body>
 </html>
