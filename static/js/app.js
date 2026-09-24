@@ -25,6 +25,7 @@
         connectionDot: $('#connection-indicator'),
         connectionText: $('#connection-text'),
         btnRestartSystem: $('#btn-restart-system'),
+        btnThemeToggle: $('#theme-toggle'),
 
         // DB Config
         dbHost: $('#db-host'),
@@ -88,6 +89,34 @@
             password: dom.dbPass.value,
             schema: dom.dbSchema.value.trim(),
         };
+    }
+
+    // ── Theme System ───────────────────────────────────────────
+    function initTheme() {
+        const savedTheme = localStorage.getItem('app-theme') || 'dark';
+        setTheme(savedTheme);
+
+        dom.btnThemeToggle.addEventListener('click', () => {
+            const currentTheme = document.documentElement.getAttribute('data-theme') || 'dark';
+            const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
+            setTheme(newTheme);
+        });
+    }
+
+    function setTheme(theme) {
+        document.documentElement.setAttribute('data-theme', theme);
+        localStorage.setItem('app-theme', theme);
+        
+        const sunIcon = $('#icon-sun');
+        const moonIcon = $('#icon-moon');
+        
+        if (theme === 'light') {
+            sunIcon.style.display = 'none';
+            moonIcon.style.display = 'block';
+        } else {
+            sunIcon.style.display = 'block';
+            moonIcon.style.display = 'none';
+        }
     }
 
     // ── Toast System ───────────────────────────────────────────
@@ -466,6 +495,7 @@
 
     // ── Init ───────────────────────────────────────────────────
     function init() {
+        initTheme();
         initSocket();
         initUpload();
         bindEvents();
